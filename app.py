@@ -1,93 +1,63 @@
 import streamlit as st
-import tensorflow as tf
 import numpy as np
-import requests
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
 from PIL import Image
-import os
+from huggingface_hub import hf_hub_download
 
-# ========================
-# CONFIGURASI APLIKASI
-# ========================
+# ===== Load Model dari Hugging Face Hub =====
+REPO_ID = "username/model-mobilenetv2"   # ganti dengan repo_id Anda
+FILENAME = "model_mobilenetv2.keras"
+
+@st.cache_resource
+def load_hf_model():
+    model_path = hf_hub_download(repo_id=REPO_ID, filename=FILENAME)
+    model = load_model(model_path)
+    return model
+
+model = load_hf_model()
+IMG_SIZE = (224, 224)  # ukuran input MobileNetV2
+
+# ===== UI Streamlit =====
 st.set_page_config(
-    page_title="Cat vs Dog Classifier",
-    page_icon="🐱🐶",
-    layout="centered"
+    page_title="MobilenetV2 Image Classifier",
+    page_icon="🤖",
+    layout="wide"
 )
 
-# URL model di Hugging Face (SavedModel .keras)
-MODEL_URL = "https://huggingface.co/alifia1/catvsdog/resolve/main/model_mobilenetv2.keras"
-MODEL_PATH = "model_mobilenetv2.keras"
-
-# ========================
-# LOAD MODEL (cache)
-# ========================
-@st.cache_resource
-def load_model():
-    if not os.path.exists(MODEL_PATH):
-        with st.spinner("🔽 Mengunduh model dari Hugging Face..."):
-            response = requests.get(MODEL_URL)
-            with open(MODEL_PATH, "wb") as f:
-                f.write(response.content)
-    return tf.keras.models.load_model(MODEL_PATH)
-
-model = load_model()
-
-# ========================
-# ANTARMUKA
-# ========================
+st.title("🤖 MobileNetV2 Image Classifier")
 st.markdown(
     """
-    <h1 style='text-align: center; color: #ff6600;'>
-        🐶🐱 Cat vs Dog Classifier
-    </h1>
-    <p style='text-align: center;'>
-        Unggah gambar kucing atau anjing dan biarkan AI menebak! <br>
-        Dibangun dengan TensorFlow & Streamlit 🚀
-    </p>
-    """,
-    unsafe_allow_html=True
-)
-
-uploaded_file = st.file_uploader("📤 Upload gambar (jpg/jpeg/png)", type=["jpg", "jpeg", "png"])
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if uploaded_file:
-        image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Gambar yang diupload", use_column_width=True)
-
-with col2:
-    if uploaded_file:
-        with st.spinner("🔍 Menganalisis gambar..."):
-            # Preprocessing
-            img = image.resize((150, 150))  # sesuaikan dengan input model
-            img_array = tf.keras.utils.img_to_array(img)
-            img_array = np.expand_dims(img_array, axis=0) / 255.0
-
-            # Prediksi
-            prediction = model.predict(img_array, verbose=0)[0][0]
-            confidence = prediction if prediction > 0.5 else 1 - prediction
-            label = "🐶 Dog" if prediction > 0.5 else "🐱 Cat"
-
-        # Hasil prediksi
-        st.success(f"Hasil Prediksi: **{label}**")
-        st.progress(float(confidence))
-        st.write(f"Confidence: **{confidence:.2%}**")
-
-# ========================
-# PETUNJUK
-# ========================
-st.markdown("---")
-st.subheader("📘 Petunjuk Penggunaan")
-st.write(
-    """
-    1. Klik tombol **Upload** untuk memilih gambar kucing atau anjing.
-    2. Tunggu beberapa detik hingga model selesai menganalisis.
-    3. Lihat hasil prediksi beserta tingkat confidence.  
+    ### Upload gambar Anda untuk diklasifikasi  
+    Model ini diambil langsung dari **Hugging Face Hub**.  
     """
 )
 
-if st.button("🔄 Reset Aplikasi"):
-    st.cache_resource.clear()
-    st.experimental_rerun()
+# Upload file
+uploaded_file = st.file_uploader("Pilih gambar...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    # Tampilkan gambar yang diupload
+    image_display = Image.open(uploaded_file).convert("RGB")
+    st.image(image_display, caption="Gambar yang diupload", use_column_width=True)
+
+    # Preprocess gambar
+    img = image_display.resize(IMG_SIZE)
+    x = image.img_to_array(img)
+    x = np.expand_dims(x, axis=0) / 255.0  # normalisasi
+
+    # Prediksi
+    preds = model.predict(x)
+    pred_class = int(np.argmax(preds, axis=1)[0])
+    confidence = float(np.max(preds))
+
+    # ===== Output =====
+    st.subheader("🔎 Hasil Prediksi")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Predicted Class", pred_class)
+    with col2:
+        st.metric("Confidence", f"{confidence*100:.2f}%")
+
+    st.markdown("### 📊 Probabilitas per Kelas")
+    st.json(preds.tolist())
